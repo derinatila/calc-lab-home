@@ -1,7 +1,7 @@
 // Derin Atila 251ADC003
 // (optional) https://github.com/derinatila/calc-lab-home
 // Compile with: gcc -O2 -Wall -Wextra -std=c17 -o calc calc.c -lm
-// Resources used: Claude (Anthropic) AI 
+// Resources used: Claude (Anthropic) AI, conversation: https://claude.ai/share/3fef1993-8da1-4dd0-a298-43fd3c477e42
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +24,12 @@
  *  copied only O(n) times in total (1 + 1/2 + 1/4 + ... < 2 copies per
  *  byte).  Growing by a fixed amount instead would copy the data again and
  *  again and become quadratic on files of several megabytes.
+ *
+ *  AI (Claude): prompt "i need to read a file in c but i dont know its size
+ *    beforehand the assignment says the file could be a few megabytes i want
+ *    to use malloc and realloc how can I create a dynamic array that grows
+ *    automatically without slowing down the program or causing memory leaks"
+ *    Link: see line 4.  Used: doubling the capacity with realloc.
  * ====================================================================== */
 typedef struct {
     char  *data;
@@ -146,7 +152,13 @@ static int is_digit(char c)
 
 /* Records an error at a 0-based index.  Only the first error counts: as
  * soon as has_error is set every parse function returns immediately, so
- * nothing after the first error is looked at. */
+ * nothing after the first error is looked at.
+ *
+ * AI (Claude): prompt "when there is an error in the parser i want to report
+ *   only the first error and stop. i am also struggling to track the exact
+ *   character position (index) to report ERROR:<pos>. how should i structure
+ *   the error flag and position counter"  Link: see line 4.
+ *   Used: an error flag where only the first error is recorded. */
 static void set_error(size_t index)
 {
     if (!has_error) {
@@ -160,7 +172,13 @@ static void set_error(size_t index)
  * starts with '.', an invalid character).  For "5." the '.' is not followed
  * by a digit, so the number is invalid and the error token starts at the
  * '.', as the task requires.  "1.5e3" is read as 1.5 and the 'e' then
- * becomes an invalid-character token of its own. */
+ * becomes an invalid-character token of its own.
+ *
+ * AI (Claude): prompt "when reading numbers from the file using strtod i
+ *   first have to copy the number into a temporary array because the string
+ *   continues afterward is there a more practical way to do this without
+ *   copying the number to a separate array"  Link: see line 4.
+ *   Used: calling strtod directly on the file buffer without a copy. */
 static void lex_number(void)
 {
     size_t p = pos;
@@ -175,8 +193,9 @@ static void lex_number(void)
             p++;
             while (p < src_len && is_digit(src[p]))
                 p++;
-            /* strtod needs a terminated string.  Instead of copying the
-             * literal, put a '\0' right after it and restore the byte. */
+            /* strtod would also read an exponent like "e3", so a '\0' is
+             * put right after the literal and restored afterwards.  The
+             * number is read straight from the file buffer, not copied. */
             char saved = src[p];
             src[p] = '\0';
             cur.value.f = strtod(src + pos, NULL);
@@ -245,7 +264,6 @@ static void lex(void)
     }
 }
 
-/* Consumes the current token and reads the next one. */
 static void next_token(void)
 {
     pos = cur.end;
@@ -410,7 +428,14 @@ static Value parse_primary(void)
 /* Operand stack for parse_power().  One global stack is shared by all
  * (nested) calls: each call only uses the part above the height it found
  * at its start and pops back to that height before returning.  It grows
- * by doubling, like Buffer. */
+ * by doubling, like Buffer.
+ *
+ * AI (Claude): prompt "for the ** (power) operator which is right-associative,
+ *   i wrote a recursive function but the assignment says files can be huge.
+ *   can a recursive function cause a stack overflow? how can i calculate this
+ *   from right to left using my own dynamically allocated array (stack)
+ *   instead"  Link: see line 4.
+ *   Used: pushing the operands onto a stack and combining them from the right. */
 typedef struct {
     Value  value;
     size_t start;     /* where this operand starts                      */
@@ -450,7 +475,7 @@ static Value parse_power(void)
     if (has_error)
         return v;
     if (cur.type != T_POW)
-        return v;                       /* no '**': nothing to combine */
+        return v;
 
     if (pow_push(v, start, 0) != 0) {
         fprintf(stderr, "calc: out of memory\n");
@@ -557,12 +582,12 @@ static int evaluate(char *data, size_t len, Buffer *out)
         while (p < src_len && (src[p] == ' ' || src[p] == '\t'))
             p++;
         if (p >= src_len)
-            break;                          /* blank last line */
-        if (src[p] == '\n') {               /* blank line */
+            break;
+        if (src[p] == '\n') {
             pos = p + 1;
             continue;
         }
-        if (src[p] == '#') {                /* comment line */
+        if (src[p] == '#') {
             while (p < src_len && src[p] != '\n')
                 p++;
             pos = (p < src_len) ? p + 1 : p;
@@ -587,7 +612,6 @@ static int evaluate(char *data, size_t len, Buffer *out)
  *  Files and folders
  * ====================================================================== */
 
-/* malloc'ed copy of s[0..n) */
 static char *copy_n(const char *s, size_t n)
 {
     char *p = malloc(n + 1);
@@ -600,7 +624,6 @@ static char *copy_n(const char *s, size_t n)
     return p;
 }
 
-/* malloc'ed "a/b", "a/b_c..." etc.: concatenation of up to 4 strings. */
 static char *concat4(const char *a, const char *b, const char *c,
                      const char *d)
 {
@@ -642,7 +665,13 @@ static char *base_name(const char *path, int strip_txt)
 }
 
 /* Creates the output folder if it does not exist yet (its parent must
- * exist).  An existing folder is fine.  Returns 0 on success. */
+ * exist).  An existing folder is fine.  Returns 0 on success.
+ *
+ * AI (Claude): prompt "when creating the output directory i need to use mkdir
+ *   and combine file paths safely without causing buffer overflows how can i
+ *   do this and how do i get the folder name from the input file"
+ *   Link: see line 4.  Used: treating EEXIST as success after checking with
+ *   stat that the path is a folder. */
 static int make_output_dir(const char *dir)
 {
     if (mkdir(dir, 0777) == 0)
@@ -711,7 +740,12 @@ static int process_file(const char *in_path, const char *out_dir)
  * collected first and processed afterwards, so result files written while
  * the folder is being read (e.g. with -o pointing into the same folder)
  * are never taken as new input.  Names starting with '.' are skipped,
- * like the shell's *.txt does. */
+ * like the shell's *.txt does.
+ *
+ * AI (Claude): prompt "in the folder mode (-d) i need to loop through all files
+ *   but only process .txt files and ignore subfolders or other files like .md
+ *   how do i filter files in c when reading a directory"  Link: see line 4.
+ *   Used: the .txt name check together with stat and S_ISREG. */
 static int process_dir(const char *dir, const char *out_dir)
 {
     DIR *d = opendir(dir);
@@ -765,6 +799,11 @@ static int process_dir(const char *dir, const char *out_dir)
 
 /* ======================================================================
  *  Command line
+ *
+ *  AI (Claude): prompt "how can i parse command line arguments in c to handle
+ *    flags like -d for directory and -o for output directory, and what is the
+ *    best way to check if the input file exists before starting the process"
+ *    Link: see line 4.
  * ====================================================================== */
 static void usage(void)
 {
